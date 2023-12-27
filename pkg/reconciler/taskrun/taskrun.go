@@ -765,6 +765,10 @@ func (c *Reconciler) handlePodCreationError(tr *v1.TaskRun, err error) error {
 		return controller.NewRequeueAfter(time.Minute)
 	case isTaskRunValidationFailed(err):
 		tr.Status.MarkResourceFailed(v1.TaskRunReasonFailedValidation, err)
+	case isKeyProtectProviderError(err):
+		tr.Status.StartTime = nil
+		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with KeyProtectProvider error")
+		return controller.NewRequeueAfter(time.Second)
 	case k8serrors.IsAlreadyExists(err):
 		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it already exists")
 	case isPodAdmissionFailed(err):
@@ -1144,4 +1148,10 @@ func retryTaskRun(tr *v1.TaskRun, message string) {
 	tr.Status.Results = nil
 	taskRunCondSet := apis.NewBatchConditionSet()
 	taskRunCondSet.Manage(&tr.Status).MarkUnknown(apis.ConditionSucceeded, v1.TaskRunReasonToBeRetried.String(), message)
+}
+
+// isKeyProtectProviderError checks for the following intermittent Key Protect error:
+// Internal error occurred: rpc error: code = DeadlineExceeded desc = latest balancer error: connection error: desc = \"transport: Error while dialing dial unix /tmp/keyprotectprovider.sock: connect: no such file or directory\"
+func isKeyProtectProviderError(err error) bool {
+	return strings.Contains(err.Error(), "Error while dialing dial unix /tmp/keyprotectprovider.sock")
 }
