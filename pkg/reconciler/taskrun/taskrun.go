@@ -765,6 +765,10 @@ func (c *Reconciler) handlePodCreationError(tr *v1.TaskRun, err error) error {
 		return controller.NewRequeueAfter(time.Minute)
 	case isTaskRunValidationFailed(err):
 		tr.Status.MarkResourceFailed(v1.TaskRunReasonFailedValidation, err)
+	case isWebhookError(err):
+		tr.Status.StartTime = nil
+		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with WebhookTimeout error")
+		return controller.NewRequeueAfter(time.Second)
 	case isKeyProtectProviderError(err):
 		tr.Status.StartTime = nil
 		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with KeyProtectProvider error")
@@ -1149,4 +1153,9 @@ func retryTaskRun(tr *v1.TaskRun, message string) {
 // Internal error occurred: rpc error: code = DeadlineExceeded desc = latest balancer error: connection error: desc = \"transport: Error while dialing dial unix /tmp/keyprotectprovider.sock: connect: no such file or directory\"
 func isKeyProtectProviderError(err error) bool {
 	return strings.Contains(err.Error(), "Error while dialing dial unix /tmp/keyprotectprovider.sock")
+}
+
+// isWebhookError checks if an error is caused by a problem to talk to the webhook from the k8s API server
+func isWebhookError(err error) bool {
+	return strings.Contains(err.Error(), "failed calling webhook")
 }
