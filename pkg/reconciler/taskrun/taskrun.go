@@ -765,6 +765,11 @@ func (c *Reconciler) handlePodCreationError(tr *v1.TaskRun, err error) error {
 		return controller.NewRequeueAfter(time.Minute)
 	case isTaskRunValidationFailed(err):
 		tr.Status.MarkResourceFailed(v1.TaskRunReasonFailedValidation, err)
+	case isResourceQuotaEvaluationTimeoutError(err):
+		// Requeue if it runs into ResourceQuotaEvaluationTimeout Error
+		tr.Status.StartTime = nil
+		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with ResourceQuotaEvaluationTimeoutError")
+		return controller.NewRequeueAfter(time.Second)
 	case isWebhookError(err):
 		tr.Status.StartTime = nil
 		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with WebhookTimeout error")
@@ -1163,4 +1168,10 @@ func isKeyProtectProviderError(err error) bool {
 // isWebhookError checks if an error is caused by a problem to talk to the webhook from the k8s API server
 func isWebhookError(err error) bool {
 	return strings.Contains(err.Error(), "failed calling webhook")
+}
+
+// isResourceQuotaEvaluationTimeoutError returns a bool indicating whether the
+// k8s error is caused by resource quota evaluation time out
+func isResourceQuotaEvaluationTimeoutError(err error) bool {
+	return strings.Contains(err.Error(), "resource quota evaluation timed out")
 }
