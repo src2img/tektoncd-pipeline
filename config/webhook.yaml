@@ -72,6 +72,8 @@ spec:
               topologyKey: kubernetes.io/hostname
             weight: 100
       serviceAccountName: tekton-pipelines-webhook
+      imagePullSecrets:
+      - name: all-icr-io
       containers:
       - name: webhook
         # This is the Go import path for the binary that is containerized
