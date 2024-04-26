@@ -59,6 +59,8 @@ spec:
                   values:
                   - windows
       serviceAccountName: tekton-pipelines-controller
+      imagePullSecrets:
+      - name: all-icr-io
       containers:
       - name: tekton-pipelines-controller
         image: ko://github.com/tektoncd/pipeline/cmd/controller
