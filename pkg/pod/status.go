@@ -816,6 +816,28 @@ func isPodHitConfigError(pod *corev1.Pod) bool {
 	return false
 }
 
+// IsPodRejected returns true if the pod was rejected by the node it was scheduled to.
+// Example pod status:
+//
+// ```yaml
+// status:
+//	phase: Failed
+//	message: "Pod was rejected: The node had condition: [DiskPressure]. "
+//	reason: Evicted
+// ```
+
+func IsPodRejected(pod *corev1.Pod) bool {
+	if pod.Status.Phase != corev1.PodFailed {
+		return false
+	}
+
+	if pod.Status.Reason != "Evicted" {
+		return false
+	}
+
+	return strings.Contains(pod.Status.Message, "Pod was rejected")
+}
+
 // isPullImageError returns true if the Pod's status indicates there are any error when pulling image
 func isPullImageError(pod *corev1.Pod) bool {
 	for _, containerStatus := range pod.Status.ContainerStatuses {

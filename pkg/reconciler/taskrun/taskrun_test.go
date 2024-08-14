@@ -1302,6 +1302,80 @@ spec:
 	}
 }
 
+func TestReconcile_RejectedPod(t *testing.T) {
+	taskRun := parse.MustParseV1TaskRun(t, `
+metadata:
+  name: test-taskrun
+  namespace: foo
+spec:
+  taskRef:
+    name: test-task
+status:
+  podName: fakePod
+`)
+	var (
+		namespace = "foo"
+		name      = "fakePod"
+	)
+	d := test.Data{
+		TaskRuns: []*v1.TaskRun{taskRun},
+		Tasks:    []*v1.Task{simpleTask},
+		Pods: []*corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      name,
+			},
+			Status: corev1.PodStatus{
+				Reason:  "Evicted",
+				Message: "Pod was rejected: The node had condition: [DiskPressure].",
+				Phase:   corev1.PodFailed,
+			},
+		}},
+	}
+	testAssets, cancel := getTaskRunController(t, d)
+	clients := testAssets.Clients
+	defer cancel()
+
+	pods, err := clients.Kube.CoreV1().Pods(namespace).List(testAssets.Ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Errorf("error listing pods %v", err)
+	}
+
+	for _, pod := range pods.Items {
+		if pod.Name != name {
+			t.Errorf("expected pod with name %s to exist", name)
+		}
+	}
+
+	if err := testAssets.Controller.Reconciler.Reconcile(testAssets.Ctx, getRunName(taskRun)); err == nil {
+		t.Errorf("expected error reconciling TaskRun with failed pod but got nil")
+	} else if ok, _ := controller.IsRequeueKey(err); !ok {
+		t.Errorf("expected no error. Got error %v", err)
+	}
+
+	if len(clients.Kube.Actions()) == 0 {
+		t.Errorf("Expected actions to be logged in the kubeclient, got none")
+	}
+
+	tr, err := clients.Pipeline.TektonV1().TaskRuns(namespace).Get(testAssets.Ctx, "test-taskrun", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("getting updated taskrun: %v", err)
+	}
+
+	if tr.Status.Annotations == nil {
+		t.Errorf("expected annotation to be initialized")
+	}
+
+	if tr.Status.Annotations["tekton.dev/retry-pod-rejected-count"] != "1" {
+		t.Errorf("expected annotation to be equal to 1")
+	}
+
+	_, err = clients.Kube.CoreV1().Pods(namespace).Get(testAssets.Ctx, name, metav1.GetOptions{})
+	if err == nil {
+		t.Errorf("expected pod to get deleted but exists")
+	}
+}
+
 func TestReconcile_SetsStartTime(t *testing.T) {
 	taskRun := parse.MustParseV1TaskRun(t, `
 metadata:
