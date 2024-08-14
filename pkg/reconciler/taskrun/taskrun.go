@@ -665,6 +665,36 @@ func (c *Reconciler) reconcile(ctx context.Context, tr *v1.TaskRun, rtr *resourc
 		recorder.Eventf(tr, corev1.EventTypeWarning, podconvert.ReasonExceededNodeResources, "Insufficient resources to schedule pod %q", pod.Name)
 	}
 
+	if podconvert.IsPodRejected(pod) {
+		// The pod was successfully created and scheduled to a node, but that node refused to run the pod.
+		// The usual scenario is that the pod was scheduled when the node was still fine, e. g. it did not
+		// yet have disk pressure. But when kubelet on the node looked at the pod, it had disk pressure.
+		// Edge case is that the pod tolerates the problem, we therefore only recreate the pod once.
+		currentRetryCount := 0
+		if value, has := tr.Status.Annotations["tekton.dev/retry-pod-rejected-count"]; has {
+			// We intentionally ignore the error here
+			currentRetryCount, _ = strconv.Atoi(value)
+		}
+
+		logger.Warnf("Pod %q for taskrun %q was rejected by node %q because of %q. The current retry count is %d.", pod.Name, tr.Name, pod.Spec.NodeName, pod.Status.Message, currentRetryCount)
+
+		if err = c.KubeClientSet.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err != nil {
+			return err
+		}
+
+		if tr.Status.Annotations == nil {
+			tr.Status.Annotations = map[string]string{}
+		}
+		tr.Status.Annotations["tekton.dev/retry-pod-rejected-count"] = strconv.Itoa(currentRetryCount + 1)
+
+		requeueAfter := 2 ^ currentRetryCount
+		if requeueAfter > 20 {
+			requeueAfter = 20
+		}
+
+		return controller.NewRequeueAfter(time.Duration(requeueAfter) * time.Second)
+	}
+
 	if podconvert.SidecarsReady(pod.Status) {
 		if err := podconvert.UpdateReady(ctx, c.KubeClientSet, *pod); err != nil {
 			return err
