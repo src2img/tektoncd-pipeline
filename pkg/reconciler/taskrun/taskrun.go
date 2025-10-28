@@ -799,6 +799,13 @@ func (c *Reconciler) handlePodCreationError(tr *v1.TaskRun, err error) error {
 		tr.Status.StartTime = nil
 		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with WebhookTimeout error")
 		return controller.NewRequeueAfter(time.Second)
+	case isEOFError(err):
+		// The request may have reached the server and the pod creation may have succeeded. We can requeue because the reconciler will then
+		// retry the pod creation. As the pod name is deterministic, it will get an AlreadyExists error which is properly handled in
+		// createPod which then retrieves this pod and uses it.
+		tr.Status.StartTime = nil
+		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with EOF error")
+		return controller.NewRequeueAfter(time.Second)
 	case isKeyProtectProviderError(err):
 		tr.Status.StartTime = nil
 		tr.Status.MarkResourceOngoing(podconvert.ReasonPodPending, "tried to create pod, but it failed with KeyProtectProvider error")
@@ -1237,4 +1244,9 @@ func isWebhookError(err error) bool {
 // k8s error is caused by resource quota evaluation time out
 func isResourceQuotaEvaluationTimeoutError(err error) bool {
 	return strings.Contains(err.Error(), "resource quota evaluation timed out")
+}
+
+// isEOFError checks if an error is caused by an EOF error on the API call
+func isEOFError(err error) bool {
+	return strings.Contains(err.Error(), "unexpected EOF")
 }
